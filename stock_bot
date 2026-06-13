@@ -470,28 +470,17 @@ async def handle(update, context):
 # ========== 主程序 ==========
 def main():
     import threading
-    import asyncio
-    
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-    
-    # 在单独线程中运行定时任务
-    def run_scheduler():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        while True:
-            run_scheduled_jobs()
-            time.sleep(60)
-    
-    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
-    scheduler_thread.start()
-    
-    print("✅ 机器人已启动（DeepSeek + 串行队列 + 定时推送）")
+    def run_bot():
+        app.run_polling()
+    threading.Thread(target=run_bot, daemon=True).start()
+    print("✅ 机器人已启动（DeepSeek + 串行队列）")
     print("77 → 发现机会 | 99 代码 → 深度分析 + K线图 | 00 代码 → 交易计划 + K线图")
     print("V5 定时推送运行中（美东时间）")
-    
-    # 在主线程运行机器人
-    app.run_polling()
+    while True:
+        run_scheduled_jobs()
+        time.sleep(60)
 
 if __name__ == "__main__":
     main()
