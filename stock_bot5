@@ -5,28 +5,170 @@ import requests
 import random
 import time
 import re
+import json
 from datetime import datetime
 import pytz
+from openai import OpenAI
+import mplfinance as mpf
+from io import BytesIO
 
 # ========== 配置 ==========
 TELEGRAM_TOKEN = "8985123714:AAGToRGZKMUZfNqGTGHA-NpeBL5tAQVUIaY"
 DEEPSEEK_API_KEY = "sk-60d4fda051f44b10bddfe639847a54eb"
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
+FINNHUB_KEY = "d8m9j0pr01qkiso71p8g"
 
-# ========== 简单测试命令 ==========
-async def start(update, context):
-    await update.message.reply_text("机器人已启动！发送 /test 测试")
+client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
 
-async def test(update, context):
-    await update.message.reply_text("测试成功！机器人正常工作")
+PERSONALITIES = ["宏观策略师", "交易员", "科技分析师", "资金流分析师", "行为金融分析师", "波动率专家", "逆向/价值派", "散户情绪观察员"]
+STOCK_POOL = ["F","GM","UBER","NIO","LI","XPEV","INTC","AMD","MU","PLTR","SOFI","SNAP","JD","BABA","PDD","AAL","DAL","CCL","WBA","T","VZ","GE","BA"]
 
-# ========== 主程序 ==========
+def get_price(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period="1d")
+        if not hist.empty:
+            return hist["Close"].iloc[-1]
+    except:
+        pass
+    return None
+
+def get_stock_data(ticker):
+    try:
+        price = get_price(ticker)
+        if not price:
+            return None
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        hist = stock.history(period="5d")
+        if hist.empty:
+            return None
+        change_1d = (hist["Close"].iloc[-1] - hist["Open"].iloc[-1]) / hist["Open"].iloc[-1] * 100
+        change_5d = (hist["Close"].iloc[-1] - hist["Close"].iloc[0]) / hist["Close"].iloc[0] * 100 if len(hist) >= 5 else 0
+        volume_ratio = hist["Volume"].iloc[-1] / (hist["Volume"].mean() or 1)
+        return {
+            "ticker": ticker,
+            "name": info.get("longName", ticker),
+            "price": round(price, 2),
+            "change_1d": round(change_1d, 2),
+            "change_5d": round(change_5d, 2),
+            "volume_ratio": round(volume_ratio, 2),
+            "sector": info.get("sector", "科技"),
+            "pe": info.get("trailingPE", "N/A"),
+            "market_cap": info.get("marketCap", 0)
+        }
+    except:
+        return None
+
+def generate_kline_chart(ticker, period="3mo"):
+    try:
+        stock = yf.Ticker(ticker)
+        df = stock.history(period=period)
+        if df.empty:
+            return None
+        df['MA5'] = df['Close'].rolling(window=5).mean()
+        df['MA20'] = df['Close'].rolling(window=20).mean()
+        mc = mpf.make_marketcolors(up='red', down='green', inherit=True)
+        s = mpf.make_mpf_style(marketcolors=mc, gridstyle='--', y_on_right=False)
+        apds = [mpf.make_addplot(df['MA5'], color='blue', width=0.8), mpf.make_addplot(df['MA20'], color='orange', width=0.8)]
+        buf = BytesIO()
+        mpf.plot(df, type='candle', addplot=apds, style=s, title=f'{ticker} K线图 (MA5/MA20)', ylabel='价格 (USD)', volume=False, savefig=buf, figsize=(10, 5))
+        buf.seek(0)
+        return buf
+    except:
+        return None
+
+async def cmd_77(update, context):
+    msg = await update.message.reply_text("🔍 正在扫描市场机会，请稍等（约30-60秒）...")
+    candidates = []
+    for t in STOCK_POOL:
+        data = get_stock_data(t)
+        if not data or data["price"] < 10 or data["price"] > 80 or "金融" in data.get("sector", ""):
+            continue
+        candidates.append(data)
+        time.sleep(1)
+    if not candidates:
+        await msg.edit_text("暂未发现合适机会")
+        return
+    strong = [c for c in candidates if c["change_1d"] > 2 and c["volume_ratio"] > 1.5][:5]
+    oversold = [c for c in candidates if c["change_5d"] < -5][:5]
+    sideways = [c for c in candidates if c["change_1d"] > -1 and c["change_1d"] < 1 and c["volume_ratio"] < 1][:5]
+    selected = strong + oversold + sideways
+    selected = selected[:15]
+    random.shuffle(selected)
+    date_str = datetime.now(pytz.timezone('US/Eastern')).strftime("%Y-%m-%d %H:%M EST")
+    out = f"📊 *77 机会扫描（{date_str}）*\n\n"
+    for idx, s in enumerate(selected, 1):
+        arrow = "🟢" if s["change_1d"] > 0 else "🔴"
+        out += f"{idx:02d} *{s['ticker']}* · {s['sector']}\n   价格 ${s['price']:.2f}  {arrow} {s['change_1d']:+.2f}%\n   5日涨跌 {s['change_5d']:+.2f}%  量比 {s['volume_ratio']:.1f}x\n\n"
+    out += "👉 使用 `99 代码` 深度分析\n👉 使用 `00 代码` 生成交易计划"
+    await msg.edit_text(out, parse_mode="Markdown")
+
+async def cmd_99(update, ticker, data):
+    personality = random.choice(PERSONALITIES)
+    prompt = f"你是{personality}，20年华尔街经验。请对{ticker}（{data['name']}）进行深度分析，200-400字：不要写格式化报告，像专业投资者那样思考：1. 市场共识可能错在哪里？2. 决定未来2-3年价值的关键因素 3. 短期压力和波动来源 4. 最乐观情形是什么？5. 最大的风险是什么？6. 向上空间 vs 向下空间？当前数据：价格${data['price']}，{data['change_1d']:+.2f}%，5日涨跌{data['change_5d']:+.2f}%，量比{data['volume_ratio']:.1f}x，PE {data['pe']}，市值{data['market_cap']/1e9:.1f}亿。要求：敢说真话，200-400字。"
+    try:
+        resp = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "user", "content": prompt}], temperature=0.8)
+        comment = resp.choices[0].message.content
+    except:
+        comment = "AI分析暂时失败，请稍后重试。"
+    up = "🟢" if data['change_1d'] > 0 else "🔴"
+    await update.message.reply_text(f"📊 *99 深度分析* | {ticker} {data['name']}\n💰 ${data['price']} {up} {data['change_1d']:+.2f}%\n🎭 分析师: {personality}\n\n{comment}\n\n⚠️ 仅供参考", parse_mode="Markdown")
+    chart = generate_kline_chart(ticker)
+    if chart:
+        await update.message.reply_photo(photo=chart, caption=f"📈 {ticker} 日线K线图 (MA5/MA20)")
+
+async def cmd_00(update, ticker, data):
+    personality = random.choice(PERSONALITIES)
+    price = data['price']
+    target = round(price * 1.09, 2)
+    profit = round((target - price) / price * 100, 1)
+    trend = "稳步上涨" if data['change_1d'] > 1 else "小幅收涨" if data['change_1d'] > 0 else "窄幅震荡" if data['change_1d'] > -1 else "短期回调"
+    try:
+        hist = yf.Ticker(ticker).history(period="1y")
+        if not hist.empty:
+            year_high = hist["High"].max()
+            year_low = hist["Low"].min()
+            pos_1y = (price - year_low) / (year_high - year_low) * 100
+            trend_1y = "近一年低位区域" if pos_1y < 30 else "近一年高位区域" if pos_1y > 70 else "近一年中位区域"
+            weak_stock = pos_1y < 30
+        else:
+            year_high, year_low, weak_stock = price * 1.2, price * 0.8, False
+    except:
+        year_high, year_low, weak_stock = price * 1.2, price * 0.8, False
+    is_active = data['volume_ratio'] > 1.2
+    time_horizon = "1个月内" if is_active else "3–6个月内" if weak_stock else "2–4个月内"
+    advice = f"该股当前{trend}，处于{trend_1y}（{pos_1y:.0f}%），量比 {data['volume_ratio']:.1f}x。{'若亏损不大，可考虑持有观察，目标看 ${target}。' if not weak_stock else f'该股处于低位，预计 {time_horizon} 内存在修复机会。'}"
+    plan = f"🎯 *00 交易计划* | {ticker} {data['name']}\n💰 价格: ${price}\n📈 目标: ${target}（+{profit}%）\n📊 趋势: {trend}\n⚡ 量比: {data['volume_ratio']:.1f}x\n📅 近1年位置: {trend_1y}（{pos_1y:.0f}%）\n\n📋 方案:\n• 入场: ${price * 0.97:.2f} ~ ${price * 1.02:.2f}\n• 止损: ${price * 0.94:.2f}（-6%）\n• 止盈: ${target}\n\n💡 *{personality} 的建议*\n{advice}\n\n⚠️ 仅供参考，不构成投资建议"
+    await update.message.reply_text(plan, parse_mode="Markdown")
+    chart = generate_kline_chart(ticker)
+    if chart:
+        await update.message.reply_photo(photo=chart, caption=f"📈 {ticker} 日线K线图 (MA5/MA20)")
+
+async def handle(update, context):
+    text = update.message.text.strip()
+    if text == "77":
+        await cmd_77(update, context)
+    elif text.startswith("99 "):
+        ticker = text.split()[1].upper()
+        data = get_stock_data(ticker)
+        if not data:
+            await update.message.reply_text(f"无法获取 {ticker} 数据")
+        else:
+            await cmd_99(update, ticker, data)
+    elif text.startswith("00 "):
+        ticker = text.split()[1].upper()
+        data = get_stock_data(ticker)
+        if not data:
+            await update.message.reply_text(f"无法获取 {ticker} 数据")
+        else:
+            await cmd_00(update, ticker, data)
+
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("test", test))
-    print("✅ 测试机器人已启动")
-    print("发送 /start 或 /test 测试")
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+    print("✅ 终极修复版机器人已启动")
+    print("77 → 机会扫描 | 99 代码 → 深度分析 + K线图 | 00 代码 → 交易计划 + K线图")
     app.run_polling()
 
 if __name__ == "__main__":
