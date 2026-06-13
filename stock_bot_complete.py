@@ -14,7 +14,7 @@ import mplfinance as mpf
 from io import BytesIO
 
 # ========== 配置 ==========
-TELEGRAM_TOKEN = "8985123714:AAGToRGZKMUZfNqGTGHA-NpeBL5tAQVUIaY"
+TELEGRAM_TOKEN = "8985123714:AAFz2jTJxdMVK_OZE6SDheN3lCLmIcN6fdE"
 DEEPSEEK_API_KEY = "sk-60d4fda051f44b10bddfe639847a54eb"
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 FINNHUB_KEY = "d8m9j0pr01qkiso71p8g"
@@ -159,7 +159,7 @@ async def cmd_77(update, context):
     if cached:
         await update.message.reply_text(cached, parse_mode="Markdown")
         return
-    
+
     msg = await update.message.reply_text("🔍 正在扫描市场机会，请稍等...")
     candidates = []
     for t in STOCK_POOL:
@@ -171,30 +171,30 @@ async def cmd_77(update, context):
         if not was_recommended_recently(t):
             candidates.append(data)
         time.sleep(0.3)
-    
+
     if not candidates:
         await msg.edit_text("暂未发现合适机会")
         return
-    
+
     strong = [c for c in candidates if c["change_1d"] > 2 and c["volume_ratio"] > 1.5][:5]
     oversold = [c for c in candidates if c["change_5d"] < -5][:5]
-    sideways = [c for c in candidates if c["volatility"] < 3][:5] if 'volatility' in candidates[0] else []
+    sideways = [c for c in candidates if c.get("volatility", 0) < 3][:5]
     selected = strong + oversold + sideways
     selected = selected[:15]
     random.shuffle(selected)
-    
+
     today = datetime.now().strftime("%Y-%m-%d")
     for s in selected:
         stock_history.append({"ticker": s["ticker"], "date": today})
     save_json(HISTORY_FILE, stock_history)
-    
+
     date_str = datetime.now(pytz.timezone('US/Eastern')).strftime("%Y-%m-%d %H:%M EST")
     out = f"📊 *77 机会扫描（{date_str}）*\n\n"
     for idx, s in enumerate(selected, 1):
         arrow = "🟢" if s["change_1d"] > 0 else "🔴"
         out += f"{idx:02d} *{s['ticker']}* · {s['sector']}\n   价格 ${s['price']:.2f}  {arrow} {s['change_1d']:+.2f}%\n   5日涨跌 {s['change_5d']:+.2f}%  量比 {s['volume_ratio']:.1f}x\n\n"
     out += "👉 使用 `99 代码` 深度分析\n👉 使用 `00 代码` 生成交易计划\n💡 买入后发送 `/buy 代码`，7天内不会重复推荐"
-    
+
     save_cached_77(out)
     await msg.edit_text(out, parse_mode="Markdown")
 
@@ -241,7 +241,7 @@ async def cmd_00(update, ticker, data):
     target = round(price * 1.09, 2)
     profit = round((target - price) / price * 100, 1)
     trend = "稳步上涨" if data['change_1d'] > 1 else "小幅收涨" if data['change_1d'] > 0 else "窄幅震荡" if data['change_1d'] > -1 else "短期回调"
-    
+
     try:
         hist = yf.Ticker(ticker).history(period="1y")
         if not hist.empty:
@@ -253,7 +253,7 @@ async def cmd_00(update, ticker, data):
             year_high, year_low, pos_1y, trend_1y = price * 1.2, price * 0.8, 50, "近一年中位区域"
     except:
         year_high, year_low, pos_1y, trend_1y = price * 1.2, price * 0.8, 50, "近一年中位区域"
-    
+
     plan = f"""🎯 *00 交易计划* | {ticker} {data['name']}
 
 💰 价格: ${price}
@@ -282,9 +282,9 @@ def get_market_snapshot():
     sectors = {"XLK": "科技", "XLF": "金融", "XLE": "能源", "XLV": "医疗"}
     result = {"vix": 18, "tnx": 4.2, "sectors": {}}
     for ticker, name in sectors.items():
-        price = get_stock_data(ticker)
-        if price:
-            result["sectors"][name] = price["price"]
+        data = get_stock_data(ticker)
+        if data:
+            result["sectors"][name] = data["price"]
         time.sleep(0.5)
     try:
         vix_data = yf.Ticker("^VIX").history(period="1d")
@@ -345,7 +345,7 @@ def run_scheduled_jobs():
     weekday = now.weekday()
     hour = now.hour
     minute = now.minute
-    
+
     if weekday == 5 and hour == 18 and minute < 30:
         send_telegram("✅ 周六系统测试，机器人运行正常，明晚周报将按时推送。", "系统测试")
     elif 0 <= weekday <= 4:
@@ -386,7 +386,7 @@ async def cmd_buy(update, context):
 # ========== 消息路由 ==========
 async def handle(update, context):
     text = update.message.text.strip()
-    
+
     if text == "77":
         await cmd_77(update, context)
     elif text.startswith("99 "):
@@ -414,14 +414,14 @@ def main():
     print("✅ 完整功能版机器人已启动（含定时推送、新闻情绪、买入记录）")
     print("77 → 机会扫描 | 99 代码 → 深度分析+情绪+K线 | 00 代码 → 交易计划+K线 | /buy 代码 → 记录买入")
     print("V5 定时推送运行中（美东时间 8:30/10:30/12:30/15:30）")
-    
+
     import threading
     def scheduler_loop():
         while True:
             run_scheduled_jobs()
             time.sleep(60)
     threading.Thread(target=scheduler_loop, daemon=True).start()
-    
+
     app.run_polling()
 
 if __name__ == "__main__":
