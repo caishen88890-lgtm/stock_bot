@@ -1,4 +1,3 @@
-cat > stock_bot_final.py << 'EOF'
 import warnings
 import yfinance as yf
 import requests
@@ -14,7 +13,6 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 from openai import OpenAI
 import mplfinance as mpf
 from io import BytesIO
-import threading
 
 warnings.filterwarnings('ignore')
 
@@ -168,7 +166,7 @@ def generate_short_comment(report_type, market_data):
 禁止复述新闻，必须解释“为什么”。
 """
     try:
-        time.sleep(2)
+        time.sleep(2)  # DeepSeek 不限流，2秒足够
         resp = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "user", "content": prompt}], temperature=0.7)
         return resp.choices[0].message.content.strip()
     except:
@@ -193,36 +191,34 @@ def job_sunday_1830():
 
 def run_scheduled_jobs():
     est = pytz.timezone('US/Eastern')
-    while True:
-        now = datetime.now(est)
-        weekday = now.weekday()
-        hour = now.hour
-        minute = now.minute
-        if weekday == 5 and hour == 18 and minute < 30:
-            send_telegram("✅ 周六系统测试，机器人运行正常，明晚周报将按时推送。", "系统测试")
-        elif 0 <= weekday <= 4:
-            if hour == 8 and minute >= 10 and minute < 30:
-                send_telegram("✅ 系统正常，20分钟后推送盘前点评", "系统检查")
-            elif hour == 8:
-                job_short("盘前点评")
-            elif hour == 10 and minute >= 10 and minute < 30:
-                send_telegram("✅ 系统正常，20分钟后推送早盘点评", "系统检查")
-            elif hour == 10:
-                job_short("早盘点评")
-            elif hour == 12 and minute >= 10 and minute < 30:
-                send_telegram("✅ 系统正常，20分钟后推送午盘点评", "系统检查")
-            elif hour == 12:
-                job_short("午盘点评")
-            elif hour == 15 and minute >= 10 and minute < 30:
-                send_telegram("✅ 系统正常，20分钟后推送收盘点评", "系统检查")
-            elif hour == 15:
-                job_short("收盘点评")
-        elif weekday == 6 and hour == 18:
-            if minute >= 10 and minute < 30:
-                send_telegram("✅ 系统正常，20分钟后推送周报", "系统检查")
-            elif minute >= 30:
-                job_sunday_1830()
-        time.sleep(60)
+    now = datetime.now(est)
+    weekday = now.weekday()
+    hour = now.hour
+    minute = now.minute
+    if weekday == 5 and hour == 18 and minute < 30:
+        send_telegram("✅ 周六系统测试，机器人运行正常，明晚周报将按时推送。", "系统测试")
+    elif 0 <= weekday <= 4:
+        if hour == 8 and minute >= 10 and minute < 30:
+            send_telegram("✅ 系统正常，20分钟后推送盘前点评", "系统检查")
+        elif hour == 8:
+            job_short("盘前点评")
+        elif hour == 10 and minute >= 10 and minute < 30:
+            send_telegram("✅ 系统正常，20分钟后推送早盘点评", "系统检查")
+        elif hour == 10:
+            job_short("早盘点评")
+        elif hour == 12 and minute >= 10 and minute < 30:
+            send_telegram("✅ 系统正常，20分钟后推送午盘点评", "系统检查")
+        elif hour == 12:
+            job_short("午盘点评")
+        elif hour == 15 and minute >= 10 and minute < 30:
+            send_telegram("✅ 系统正常，20分钟后推送收盘点评", "系统检查")
+        elif hour == 15:
+            job_short("收盘点评")
+    elif weekday == 6 and hour == 18:
+        if minute >= 10 and minute < 30:
+            send_telegram("✅ 系统正常，20分钟后推送周报", "系统检查")
+        elif minute >= 30:
+            job_sunday_1830()
 
 # ========== 77 市场扫描器 ==========
 STOCK_POOL = ["F","GM","UBER","NIO","LI","XPEV","INTC","AMD","MU","PLTR","SOFI","SNAP","JD","BABA","PDD","AAL","DAL","CCL","WBA","T","VZ","GE","BA"]
@@ -282,7 +278,7 @@ PE {data['pe']}，市值{data['market_cap']/1e9:.1f}亿
 要求：敢说真话，200-400字。
 """
     try:
-        time.sleep(2)
+        time.sleep(2)  # DeepSeek 不限流
         resp = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "user", "content": prompt}], temperature=0.8)
         comment = resp.choices[0].message.content
     except Exception as e:
@@ -315,6 +311,7 @@ async def cmd_00(update, ticker, data):
     else:
         trend = "短期回调"
 
+    # ----- 获取近一年高低点 -----
     try:
         hist = yf.Ticker(ticker).history(period="1y")
         if not hist.empty:
@@ -339,6 +336,7 @@ async def cmd_00(update, ticker, data):
         year_low = price * 0.8
         weak_stock = False
 
+    # ----- 获取新闻情绪 -----
     news_sentiment = "中性"
     try:
         url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from=2026-05-01&to=2026-06-13&token={FINNHUB_KEY}"
@@ -359,6 +357,7 @@ async def cmd_00(update, ticker, data):
     except:
         pass
 
+    # ----- 判断活跃度 -----
     is_active = data['volume_ratio'] > 1.2
     is_weak = weak_stock
 
@@ -425,8 +424,9 @@ async def handle(update, context):
     global processing, task_queue
     text = update.message.text.strip()
     
+    # 只处理三个命令
     if not (text == "77" or re.match(r'^99\s+([A-Z]{2,5})$', text, re.IGNORECASE) or re.match(r'^00\s+([A-Z]{2,5})$', text, re.IGNORECASE)):
-        return
+        return  # 其他消息忽略
     
     async def process():
         global processing
@@ -469,18 +469,29 @@ async def handle(update, context):
 
 # ========== 主程序 ==========
 def main():
-    # 启动定时推送线程
-    scheduler_thread = threading.Thread(target=run_scheduled_jobs, daemon=True)
-    scheduler_thread.start()
+    import threading
+    import asyncio
     
-    # 启动机器人（在主线程）
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+    
+    # 在单独线程中运行定时任务
+    def run_scheduler():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        while True:
+            run_scheduled_jobs()
+            time.sleep(60)
+    
+    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+    scheduler_thread.start()
+    
     print("✅ 机器人已启动（DeepSeek + 串行队列 + 定时推送）")
     print("77 → 发现机会 | 99 代码 → 深度分析 + K线图 | 00 代码 → 交易计划 + K线图")
     print("V5 定时推送运行中（美东时间）")
+    
+    # 在主线程运行机器人
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-EOF
