@@ -166,7 +166,7 @@ def generate_short_comment(report_type, market_data):
 禁止复述新闻，必须解释“为什么”。
 """
     try:
-        time.sleep(2)  # DeepSeek 不限流，2秒足够
+        time.sleep(2)
         resp = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "user", "content": prompt}], temperature=0.7)
         return resp.choices[0].message.content.strip()
     except:
@@ -278,7 +278,7 @@ PE {data['pe']}，市值{data['market_cap']/1e9:.1f}亿
 要求：敢说真话，200-400字。
 """
     try:
-        time.sleep(2)  # DeepSeek 不限流
+        time.sleep(2)
         resp = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "user", "content": prompt}], temperature=0.8)
         comment = resp.choices[0].message.content
     except Exception as e:
@@ -311,7 +311,6 @@ async def cmd_00(update, ticker, data):
     else:
         trend = "短期回调"
 
-    # ----- 获取近一年高低点 -----
     try:
         hist = yf.Ticker(ticker).history(period="1y")
         if not hist.empty:
@@ -336,7 +335,6 @@ async def cmd_00(update, ticker, data):
         year_low = price * 0.8
         weak_stock = False
 
-    # ----- 获取新闻情绪 -----
     news_sentiment = "中性"
     try:
         url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from=2026-05-01&to=2026-06-13&token={FINNHUB_KEY}"
@@ -357,7 +355,6 @@ async def cmd_00(update, ticker, data):
     except:
         pass
 
-    # ----- 判断活跃度 -----
     is_active = data['volume_ratio'] > 1.2
     is_weak = weak_stock
 
@@ -423,11 +420,10 @@ async def cmd_00(update, ticker, data):
 async def handle(update, context):
     global processing, task_queue
     text = update.message.text.strip()
-    
-    # 只处理三个命令
+
     if not (text == "77" or re.match(r'^99\s+([A-Z]{2,5})$', text, re.IGNORECASE) or re.match(r'^00\s+([A-Z]{2,5})$', text, re.IGNORECASE)):
-        return  # 其他消息忽略
-    
+        return
+
     async def process():
         global processing
         status_msg = await update.message.reply_text("🔍 正在查询中，请稍等...（请耐心等待）")
@@ -459,7 +455,7 @@ async def handle(update, context):
                 next_task = task_queue.pop(0)
                 processing = True
                 asyncio.create_task(next_task())
-    
+
     if processing:
         task_queue.append(process)
         await update.message.reply_text("⏳ 正在处理上一个查询，请稍等，我会自动排队处理。")
@@ -469,18 +465,13 @@ async def handle(update, context):
 
 # ========== 主程序 ==========
 def main():
-    import threading
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-    def run_bot():
-        app.run_polling()
-    threading.Thread(target=run_bot, daemon=True).start()
-    print("✅ 机器人已启动（DeepSeek + 串行队列）")
-    print("77 → 发现机会 | 99 代码 → 深度分析 + K线图 | 00 代码 → 交易计划 + K线图")
-    print("V5 定时推送运行中（美东时间）")
-    while True:
-        run_scheduled_jobs()
-        time.sleep(60)
+    
+    async def run_bot():
+        await app.run_polling()
+    
+    asyncio.run(run_bot())
 
 if __name__ == "__main__":
     main()
