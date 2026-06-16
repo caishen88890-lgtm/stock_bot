@@ -16,7 +16,6 @@ FINNHUB_KEY = "d8m9j0pr01qkiso71p8g"
 
 client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
 
-# ========== 20种分析师人格 ==========
 PERSONALITIES = [
     "宏观策略师", "交易员", "科技分析师", "资金流分析师",
     "行为金融分析师", "波动率专家", "逆向/价值派", "散户情绪观察员",
@@ -24,7 +23,6 @@ PERSONALITIES = [
     "地缘政治分析师", "美联储喉舌", "行业轮动专家", "事件驱动投机者"
 ]
 
-# ========== 翻译模块 ==========
 try:
     import argostranslate.package
     import argostranslate.translate
@@ -41,7 +39,6 @@ def translate_to_chinese(text):
     except:
         return text
 
-# ========== 获取地缘新闻 ==========
 def get_breaking_news():
     keywords = [
         "Hormuz", "Strait of Hormuz", "Iran", "Middle East", "oil", "crude", "OPEC",
@@ -64,7 +61,6 @@ def get_breaking_news():
         print(f"获取新闻失败: {e}")
     return "🔹 暂无重大地缘事件"
 
-# ========== 数据获取 ==========
 def get_stock_data(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -91,7 +87,6 @@ def get_stock_data(ticker):
         return None
 
 def get_market_data():
-    """获取宏观、情绪、资金数据"""
     result = {
         "tnx": None, "vix": None, "strongest": None, "weakest": None,
         "rotation": None
@@ -241,62 +236,50 @@ def run_scheduled_jobs():
         hour = now.hour
         minute = now.minute
 
-        # 盘前点评预备通知（8:20）
         if 0 <= weekday <= 4 and hour == 8 and minute == 20 and last_run.get("pre_notice") != today:
             send_telegram("⏰ 系统运转推测正常\n\n距离盘前点评推送还有 10 分钟，数据获取正常，当前无异常。", "系统通知")
             last_run["pre_notice"] = today
 
-        # 盘前点评正式推送（8:30）
         if 0 <= weekday <= 4 and hour == 8 and minute == 30 and last_run.get("pre") != today:
             job_report("盘前点评")
             last_run["pre"] = today
 
-        # 早盘点评预备通知（10:20）
         if 0 <= weekday <= 4 and hour == 10 and minute == 20 and last_run.get("morning_notice") != today:
             send_telegram("⏰ 系统运转推测正常\n\n距离早盘点评推送还有 10 分钟，数据获取正常，当前无异常。", "系统通知")
             last_run["morning_notice"] = today
 
-        # 早盘点评正式推送（10:30）
         if 0 <= weekday <= 4 and hour == 10 and minute == 30 and last_run.get("morning") != today:
             job_report("早盘点评")
             last_run["morning"] = today
 
-        # 午盘点评预备通知（12:20）
         if 0 <= weekday <= 4 and hour == 12 and minute == 20 and last_run.get("noon_notice") != today:
             send_telegram("⏰ 系统运转推测正常\n\n距离午盘点评推送还有 10 分钟，数据获取正常，当前无异常。", "系统通知")
             last_run["noon_notice"] = today
 
-        # 午盘点评正式推送（12:30）
         if 0 <= weekday <= 4 and hour == 12 and minute == 30 and last_run.get("noon") != today:
             job_report("午盘点评")
             last_run["noon"] = today
 
-        # 收盘点评预备通知（15:20）
         if 0 <= weekday <= 4 and hour == 15 and minute == 20 and last_run.get("close_notice") != today:
             send_telegram("⏰ 系统运转推测正常\n\n距离收盘点评推送还有 10 分钟，数据获取正常，当前无异常。", "系统通知")
             last_run["close_notice"] = today
 
-        # 收盘点评正式推送（15:30）
         if 0 <= weekday <= 4 and hour == 15 and minute == 30 and last_run.get("close") != today:
             job_report("收盘点评")
             last_run["close"] = today
 
-        # 周六系统测试预备通知（17:50）
         if weekday == 5 and hour == 17 and minute == 50 and last_run.get("saturday_notice") != today:
             send_telegram("⏰ 系统运转推测正常\n\n距离系统测试推送还有 10 分钟，数据获取正常，当前无异常。", "系统通知")
             last_run["saturday_notice"] = today
 
-        # 周六系统测试（18:00）
         if weekday == 5 and hour == 18 and minute == 0 and last_run.get("saturday") != today:
             send_telegram("✅ 周六系统测试，机器人运行正常，明晚周报将按时推送。", "系统测试")
             last_run["saturday"] = today
 
-        # 周日周报预备通知（18:20）
         if weekday == 6 and hour == 18 and minute == 20 and last_run.get("sunday_notice") != today:
             send_telegram("⏰ 系统运转推测正常\n\n距离周报推送还有 10 分钟，数据获取正常，当前无异常。", "系统通知")
             last_run["sunday_notice"] = today
 
-        # 周日周报（18:30）
         if weekday == 6 and hour == 18 and minute == 30 and last_run.get("sunday") != today:
             job_sunday_1830()
             last_run["sunday"] = today
