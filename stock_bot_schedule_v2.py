@@ -1,4 +1,3 @@
-cat > stock_bot_schedule.py << 'EOF'
 import requests
 import time
 import json
@@ -8,6 +7,7 @@ import yfinance as yf
 from datetime import datetime
 from openai import OpenAI
 
+# ========== 配置 ==========
 TELEGRAM_TOKEN = "8936501284:AAEIMWrTHZ8MKsy1_kPsJ0Cb2F-W_sWqguY"
 TELEGRAM_CHAT_ID = "1003954872100"
 DEEPSEEK_API_KEY = "sk-60d4fda051f44b10bddfe639847a54eb"
@@ -16,6 +16,7 @@ FINNHUB_KEY = "d8m9j0pr01qkiso71p8g"
 
 client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
 
+# ========== 20种分析师人格 ==========
 PERSONALITIES = [
     "宏观策略师", "交易员", "科技分析师", "资金流分析师",
     "行为金融分析师", "波动率专家", "逆向/价值派", "散户情绪观察员",
@@ -23,12 +24,14 @@ PERSONALITIES = [
     "地缘政治分析师", "美联储喉舌", "行业轮动专家", "事件驱动投机者"
 ]
 
+# ========== 翻译模块 ==========
 try:
     import argostranslate.package
     import argostranslate.translate
     translator = argostranslate.translate.get_translation_from_codes("en", "zh")
 except:
     translator = None
+    print("⚠️ 翻译模块未安装，新闻将显示原文")
 
 def translate_to_chinese(text):
     if not text or translator is None:
@@ -38,6 +41,7 @@ def translate_to_chinese(text):
     except:
         return text
 
+# ========== 获取地缘新闻 ==========
 def get_breaking_news():
     keywords = [
         "Hormuz", "Strait of Hormuz", "Iran", "Middle East", "oil", "crude", "OPEC",
@@ -56,11 +60,12 @@ def get_breaking_news():
                 if kw.lower() in combined:
                     translated = translate_to_chinese(headline)
                     return f"🔹 {translated}"
-    except:
-        pass
+    except Exception as e:
+        print(f"获取新闻失败: {e}")
     return "🔹 暂无重大地缘事件"
 
 def get_market_data():
+    """获取宏观、情绪、资金数据"""
     result = {
         "tnx": None, "vix": None, "strongest": None, "weakest": None,
         "rotation": None
@@ -114,6 +119,7 @@ def generate_comment(report_type, market_data, news):
     strongest = market_data.get("strongest", "科技")
     weakest = market_data.get("weakest", "金融")
     rotation = market_data.get("rotation", "资金轮动")
+
     data_section = f"""【数据区】
 • 宏观：10年期美债收益率 {tnx:.3f}%，处于近期高位，利率预期对风险资产形成温和压制
 • 情绪：VIX = {vix:.2f}，处于历史偏低水平，市场情绪中性偏乐观
@@ -122,25 +128,33 @@ def generate_comment(report_type, market_data, news):
 """
     if rotation:
         data_section += f"• 轮动：{rotation}\n"
+
     prompt = f"""你是{random.choice(PERSONALITIES)}，20年华尔街经验。
+
 请生成一份{report_type}的整合点评（不少于400字），要求：
 1. 完全口语化，像资深分析师在说话，不要用【】符号
 2. 自然融入以下数据：10年期美债收益率{tnx:.3f}%、VIX={vix:.2f}、最强{strongest}、最弱{weakest}
 3. 融入以下新闻：{news}
 4. 结合当前市场风格：{rotation}
 5. 最后给出明确的结论（偏多/偏空/中性）和具体的操作建议
+
 不要重复数据区的格式，要连贯叙述，文字要像人写的。"""
+
     try:
         resp = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "user", "content": prompt}], temperature=0.85)
         comment = resp.choices[0].message.content
     except:
         comment = f"AI分析暂时失败。当前{report_type}，美债{tnx:.3f}%，VIX{vix:.2f}，资金最强{strongest}最弱{weakest}，{news}。建议保持谨慎。"
+
     if len(comment) < 400:
         comment += " " + "市场仍需关注美债4.5%关口和VIX变化，短期波动可能加大，建议控制仓位。"
+
     risk_line = f"""⚠️ 关键风险线
 • 美债收益率有效突破 4.5% → 成长股估值重定价风险上升
 • VIX回升至 18+ → 防御切换信号
+
 👉 当前策略：顺势做多科技主线，回避金融与高利率敏感周期股"""
+
     return f"{data_section}\n━━━━━━━━━━━━━━\n\n📝 {comment}\n\n📌 结论：\n{risk_line}"
 
 def job_report(report_type):
@@ -152,26 +166,33 @@ def job_report(report_type):
 def job_sunday_1830():
     market_data = get_market_data()
     news = get_breaking_news()
+
     data_section = f"""【数据区】
 • 宏观：10年期美债收益率 {market_data.get('tnx', 4.45):.3f}%
 • 情绪：VIX = {market_data.get('vix', 16.5):.2f}
 • 资金：最强 {market_data.get('strongest', '科技')}，最弱 {market_data.get('weakest', '金融')}
 • 新闻：{news}
 """
+
     prompt = f"""你是{random.choice(PERSONALITIES)}，20年华尔街经验。
+
 请生成一份周日周报（不少于500字），包含：
 1. 本周市场回顾（一句话总结核心特征）
 2. 下周展望（标普500和纳斯达克方向判断、关键因素）
 3. 大胆预测（具体的、有争议的预测，敢于给出方向和时间）
 4. 个人看法（资深交易员的主观观点）
 5. 操作建议（一句话总结）
+
 自然融入数据：美债{market_data.get('tnx', 4.45):.3f}%、VIX{market_data.get('vix', 16.5):.2f}、最强{market_data.get('strongest', '科技')}、最弱{market_data.get('weakest', '金融')}、新闻{news}
+
 要求：口语化，不要分点，像在跟客户说话。"""
+
     try:
         resp = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "user", "content": prompt}], temperature=0.85)
         comment = resp.choices[0].message.content
     except:
         comment = "AI分析暂时失败，请稍后重试。"
+
     full_report = f"{data_section}\n━━━━━━━━━━━━━━\n\n📝 {comment}\n\n⚠️ 仅供参考，不构成投资建议"
     send_telegram(full_report, "周度总结 & 下周展望")
 
@@ -193,42 +214,55 @@ def run_scheduled_jobs():
         weekday = now.weekday()
         hour = now.hour
         minute = now.minute
+
         if 0 <= weekday <= 4 and hour == 8 and minute == 20 and last_run.get("pre_notice") != today:
             send_telegram("⏰ 系统运转推测正常\n\n距离盘前点评推送还有 10 分钟，数据获取正常，当前无异常。", "系统通知")
             last_run["pre_notice"] = today
+
         if 0 <= weekday <= 4 and hour == 8 and minute == 30 and last_run.get("pre") != today:
             job_report("盘前点评")
             last_run["pre"] = today
+
         if 0 <= weekday <= 4 and hour == 10 and minute == 20 and last_run.get("morning_notice") != today:
             send_telegram("⏰ 系统运转推测正常\n\n距离早盘点评推送还有 10 分钟，数据获取正常，当前无异常。", "系统通知")
             last_run["morning_notice"] = today
+
         if 0 <= weekday <= 4 and hour == 10 and minute == 30 and last_run.get("morning") != today:
             job_report("早盘点评")
             last_run["morning"] = today
+
         if 0 <= weekday <= 4 and hour == 12 and minute == 20 and last_run.get("noon_notice") != today:
             send_telegram("⏰ 系统运转推测正常\n\n距离午盘点评推送还有 10 分钟，数据获取正常，当前无异常。", "系统通知")
             last_run["noon_notice"] = today
+
         if 0 <= weekday <= 4 and hour == 12 and minute == 30 and last_run.get("noon") != today:
             job_report("午盘点评")
             last_run["noon"] = today
+
         if 0 <= weekday <= 4 and hour == 15 and minute == 20 and last_run.get("close_notice") != today:
             send_telegram("⏰ 系统运转推测正常\n\n距离收盘点评推送还有 10 分钟，数据获取正常，当前无异常。", "系统通知")
             last_run["close_notice"] = today
+
         if 0 <= weekday <= 4 and hour == 15 and minute == 30 and last_run.get("close") != today:
             job_report("收盘点评")
             last_run["close"] = today
+
         if weekday == 5 and hour == 17 and minute == 50 and last_run.get("saturday_notice") != today:
             send_telegram("⏰ 系统运转推测正常\n\n距离系统测试推送还有 10 分钟，数据获取正常，当前无异常。", "系统通知")
             last_run["saturday_notice"] = today
+
         if weekday == 5 and hour == 18 and minute == 0 and last_run.get("saturday") != today:
             send_telegram("✅ 周六系统测试，机器人运行正常，明晚周报将按时推送。", "系统测试")
             last_run["saturday"] = today
+
         if weekday == 6 and hour == 18 and minute == 20 and last_run.get("sunday_notice") != today:
             send_telegram("⏰ 系统运转推测正常\n\n距离周报推送还有 10 分钟，数据获取正常，当前无异常。", "系统通知")
             last_run["sunday_notice"] = today
+
         if weekday == 6 and hour == 18 and minute == 30 and last_run.get("sunday") != today:
             job_sunday_1830()
             last_run["sunday"] = today
+
         time.sleep(60)
 
 def main():
@@ -239,4 +273,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-EOF
